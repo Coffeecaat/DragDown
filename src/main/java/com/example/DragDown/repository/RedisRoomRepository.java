@@ -1,10 +1,10 @@
 package com.example.DragDown.repository;
 
-import lombok.RequiredArgsConstructor;
+
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Repository;
 
@@ -13,10 +13,19 @@ import java.util.*;
 
 @Slf4j
 @Repository
-@RequiredArgsConstructor
 public class RedisRoomRepository implements MatchRoomRepository{
 
     private final StringRedisTemplate stringRedisTemplate;
+    private final RedisScript<Long> joinRoomScriptBean;
+    private final RedisScript<Long> leaveRoomScriptBean;
+
+    public RedisRoomRepository(StringRedisTemplate stringRedisTemplate,
+                               @Qualifier("joinRoomScript") RedisScript<Long> joinRoomScript,
+                               @Qualifier("leaveRoomScript") RedisScript<Long> leaveRoomScript){
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.joinRoomScriptBean = joinRoomScript;
+        this.leaveRoomScriptBean = leaveRoomScript;
+    }
 
     // -- Redis Key Constants --
     private static final String ROOMS_ACTIVE_SET_KEY = "rooms:active_set";
@@ -27,55 +36,6 @@ public class RedisRoomRepository implements MatchRoomRepository{
 
     private static final int MAX_ID_GENERATION_ATTEMPTS = 10;
 
-    // --Lua Scripts (Service to Repository) --
-    private static final RedisScript<Long> JOIN_ROOM_SCRIPT = new DefaultRedisScript<>(
-
-            // ...(copy content from the previous response's JOIN_ROOM_SCRIPT) ...
-            "local maxPlayers = tonumber(redis.call('HGET', KEYS[2], 'maxPlayers')) \n" +
-                    "local currentState = redis.call('HGET', KEYS[2], 'state') \n" +
-                    "if not currentState then return 4 end \n" + // 4: no room
-                    "if currentState ~= 'waiting' then return 0 end \n" + // 0:game started
-                    "local currentPlayerCount = redis.call('SCARD', KEYS[1]) \n" +
-                    "if currentPlayerCount >= maxPlayers then return 1 end \n"+
-                    "if redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 1 then return 2 end \n" + // 2: already in
-                    "local added = redis.call('SADD', KEYS[1], ARGV[1]) \n" +
-                    "if added == 1 then \n" +
-                    " redis.call('HSET', KEYS[3], ARGV[1], ARGV[2]) \n" +
-                    " redis.call('HSET', KEYS[4], ARGV[1], ARGV[3] .. ':' .. ARGV[4]) \n" +
-                    " return 3 \n" + // 3: succeeded
-                    "else \n" +
-                    " return 5 \n" + // 5: player insertion failed
-                    "end",
-            Long.class
-    );
-
-    private static final RedisScript<Long> LEAVE_ROOM_SCRIPT = new DefaultRedisScript<>(
-
-            "local username = ARGV[1] \n" +
-                    "local roomId = ARGV[2] \n" +
-                    "local roomPlayersKey = '" + ROOM_PLAYERS_SET_KEY_PREFIX + "' .. roomId .. ':players' \n" +
-                    "local roomDetailsKey = '" + ROOM_DETAILS_HASH_KEY_PREFIX + "' .. roomId .. ':details' \n" +
-
-                    "if redis.call('EXISTS', roomDetailsKey) == 0 then return 3 end \n" + // 3: no room
-                    "redis.call('HDEL', KEYS[1], username) \n" + // location delete
-                    "redis.call('HDEL', KEYS[2], username) \n" + // IP delete
-
-                    "local removed = redis.call('SREM', roomPlayersKey, username) \n" +
-                    "if removed == 0 then return 2 end \n" + // 2: not on the list
-
-                    "local hostUsername = redis.call('HGET', roomDetailsKey, 'hostUsername') \n" +
-                    "local remainingCount = redis.call('SCARD', roomPlayersKey) \n" +
-
-                    "if username == hostUsername or remainingCount == 0 then \n" +
-                        "redis.call('DEL', roomDetailsKey) \n" +
-                        "redis.call('DEL', roomPlayersKey) \n" +
-                        "redis.call('SREM', KEYS[3], roomId) \n" +
-                        "return 1 \n" + // 1: room closed
-                    "else \n" +
-                        "return 0 \n" + // 0: ordinary exit
-                    "end",
-            Long.class
-    );
 
     // --Player Location & IP ---
     @Override
@@ -170,18 +130,18 @@ public class RedisRoomRepository implements MatchRoomRepository{
         log.error("Failed to generate a unique room ID after {} attempts.", MAX_ID_GENERATION_ATTEMPTS);
         throw new RuntimeException("Could not generate a unique room ID after " + MAX_ID_GENERATION_ATTEMPTS +
                 " attempts.");
-        }
+    }
 
-        private String getRoomDetailsKey(String roomId){
+    private String getRoomDetailsKey(String roomId){
         return ROOM_DETAILS_HASH_KEY_PREFIX + roomId + ":details";
-        }
-        private String getRoomPlayersKey(String roomId){
+    }
+    private String getRoomPlayersKey(String roomId){
         return ROOM_PLAYERS_SET_KEY_PREFIX  + roomId + ":players";
-        }
+    }
 
 
-        @Override
-        public void saveNewRoom(String roomId, String roomName, String hostUsername, String hostIp, int maxPlayers){
+    @Override
+    public void saveNewRoom(String roomId, String roomName, String hostUsername, String hostIp, int maxPlayers){
 
         String roomDetailsKey = getRoomDetailsKey(roomId);
         Map<String, String> roomDetails = new HashMap<>();
@@ -192,29 +152,29 @@ public class RedisRoomRepository implements MatchRoomRepository{
         roomDetails.put("state", "waiting");
         roomDetails.put("createdAt", String.valueOf(Instant.now().toEpochMilli()));
         stringRedisTemplate.opsForHash().putAll(roomDetailsKey, roomDetails);
-        }
+    }
 
-        @Override
-        public void addRoomToActiveList(String roomId){
+    @Override
+    public void addRoomToActiveList(String roomId){
         stringRedisTemplate.opsForSet().add(ROOMS_ACTIVE_SET_KEY, roomId);
-        }
+    }
 
-        @Override
-        public Set<String> getActiveRoomIds(){
+    @Override
+    public Set<String> getActiveRoomIds(){
 
         // member() return Set<Object>
-            Set<String> roomIds = stringRedisTemplate.opsForSet().members(ROOMS_ACTIVE_SET_KEY);
-            return roomIds != null ? roomIds : Collections.emptySet();
-        }
+        Set<String> roomIds = stringRedisTemplate.opsForSet().members(ROOMS_ACTIVE_SET_KEY);
+        return roomIds != null ? roomIds : Collections.emptySet();
+    }
 
-        @Override
-        public Map<String, String> getRoomDetailsMap(String roomId){
+    @Override
+    public Map<String, String> getRoomDetailsMap(String roomId){
         HashOperations<String, String, String> hashOps = stringRedisTemplate.opsForHash();
         return hashOps.entries(getRoomDetailsKey(roomId));
-        }
+    }
 
-        @Override
-        public Set<String> getRoomPlayers(String roomId){
+    @Override
+    public Set<String> getRoomPlayers(String roomId){
 
         // member() returns Set<Object>
         Set<String> players = stringRedisTemplate.opsForSet().members(getRoomPlayersKey(roomId));
@@ -261,7 +221,7 @@ public class RedisRoomRepository implements MatchRoomRepository{
                 getRoomPlayersKey(roomId), getRoomDetailsKey(roomId),
                 PLAYER_LOCATIONS_HASH_KEY, PLAYER_IPS_HASH_KEY
         );
-        Long result = stringRedisTemplate.execute(JOIN_ROOM_SCRIPT, keys, username, roomId, joinerIp, String.valueOf(joinerPort));
+        Long result = stringRedisTemplate.execute(joinRoomScriptBean, keys, username, roomId, joinerIp, String.valueOf(joinerPort));
         return result != null ? result : -1L;
     }
 
@@ -272,7 +232,7 @@ public class RedisRoomRepository implements MatchRoomRepository{
                 PLAYER_IPS_HASH_KEY,
                 ROOMS_ACTIVE_SET_KEY
         );
-        Long result = stringRedisTemplate.execute(LEAVE_ROOM_SCRIPT, keys, username, roomId);
+        Long result = stringRedisTemplate.execute(leaveRoomScriptBean, keys, username, roomId);
         return result != null ? result : -1L;
     }
 }
