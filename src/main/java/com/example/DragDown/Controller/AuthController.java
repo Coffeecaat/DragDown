@@ -44,4 +44,38 @@ public class AuthController {
         signUpService.signUp(request);
         return ResponseEntity.ok("User registered successfully");
     }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<?> refreshToken(@Valid @RequestBody ExpiredAccessTokenRequest request){
+        try{
+            log.debug("Token refresh attempt with expired access token: {}",
+                    (request.getExpiredAccessToken() != null && request.getExpiredAccessToken().length() >10)?
+                    request.getExpiredAccessToken().substring(0,10) + "..." : "N/A");
+
+            AuthResponse response = tokenRefreshService.refreshToken(request);
+            return ResponseEntity.ok(response);
+        }catch(TokenRefreshException ex){
+            log.warn("Token refresh failed: {}", ex.getMessage());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("Token Refresh Failed", ex.getMessage()));
+        }
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<MessageResponse> logout(){
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        String username = null;
+        if(authentication != null && authentication.isAuthenticated() &&
+        !"anonymousUser".equals(authentication.getPrincipal().toString())){
+            username = authentication.getName();
+            refreshTokenRepository.deleteRefreshTokenByUsername(username);
+            log.info("User '{}' logged out. Server-side refresh token deleted.", username);
+            SecurityContextHolder.clearContext();
+        }else{
+            log.warn("Logout attempt by unauthenticated or anonymous user.");
+        }
+        return ResponseEntity.ok(new MessageResponse("Logged out successfully"));
+    }
+
+
 }
