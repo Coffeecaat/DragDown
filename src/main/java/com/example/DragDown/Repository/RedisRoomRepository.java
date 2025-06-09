@@ -14,10 +14,19 @@ import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Repository
-@RequiredArgsConstructor
 public class RedisRoomRepository implements MatchRoomRepository{
 
     private final StringRedisTemplate stringRedisTemplate;
+    private final RedisScript<Long> joinRoomScriptBean;
+    private final RedisScript<Long> leaveRoomScriptBean;
+
+    public RedisRoomRepository(StringRedisTemplate stringRedisTemplate,
+                               @Qualifier("joinRoomScript") RedisScript<Long> joinRoomScript,
+                               @Qualifier("leaveRoomScript") RedisScript<Long> leaveRoomScript){
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.joinRoomScriptBean = joinRoomScript;
+        this.leaveRoomScriptBean = leaveRoomScript;
+    }
 
     // -- Redis Key Constants --
     private static final String ROOMS_ACTIVE_SET_KEY = "rooms:active_set";
@@ -146,16 +155,16 @@ public class RedisRoomRepository implements MatchRoomRepository{
                 " attempts.");
     }
 
-        private String getRoomDetailsKey(String roomId){
+    private String getRoomDetailsKey(String roomId){
         return ROOM_DETAILS_HASH_KEY_PREFIX + roomId + ":details";
-        }
-        private String getRoomPlayersKey(String roomId){
+    }
+    private String getRoomPlayersKey(String roomId){
         return ROOM_PLAYERS_SET_KEY_PREFIX  + roomId + ":players";
-        }
+    }
 
 
-        @Override
-        public void saveNewRoom(String roomId, String roomName, String hostUsername, String hostIp, int maxPlayers){
+    @Override
+    public void saveNewRoom(String roomId, String roomName, String hostUsername, String hostIp, int maxPlayers){
 
         String roomDetailsKey = getRoomDetailsKey(roomId);
         Map<String, String> roomDetails = new HashMap<>();
@@ -166,29 +175,29 @@ public class RedisRoomRepository implements MatchRoomRepository{
         roomDetails.put("state", "waiting");
         roomDetails.put("createdAt", String.valueOf(Instant.now().toEpochMilli()));
         stringRedisTemplate.opsForHash().putAll(roomDetailsKey, roomDetails);
-        }
+    }
 
-        @Override
-        public void addRoomToActiveList(String roomId){
+    @Override
+    public void addRoomToActiveList(String roomId){
         stringRedisTemplate.opsForSet().add(ROOMS_ACTIVE_SET_KEY, roomId);
-        }
+    }
 
-        @Override
-        public Set<String> getActiveRoomIds(){
+    @Override
+    public Set<String> getActiveRoomIds(){
 
         // member() return Set<Object>
-            Set<String> roomIds = stringRedisTemplate.opsForSet().members(ROOMS_ACTIVE_SET_KEY);
-            return roomIds != null ? roomIds : Collections.emptySet();
-        }
+        Set<String> roomIds = stringRedisTemplate.opsForSet().members(ROOMS_ACTIVE_SET_KEY);
+        return roomIds != null ? roomIds : Collections.emptySet();
+    }
 
-        @Override
-        public Map<String, String> getRoomDetailsMap(String roomId){
+    @Override
+    public Map<String, String> getRoomDetailsMap(String roomId){
         HashOperations<String, String, String> hashOps = stringRedisTemplate.opsForHash();
         return hashOps.entries(getRoomDetailsKey(roomId));
-        }
+    }
 
-        @Override
-        public Set<String> getRoomPlayers(String roomId){
+    @Override
+    public Set<String> getRoomPlayers(String roomId){
 
         // member() returns Set<Object>
         Set<String> players = stringRedisTemplate.opsForSet().members(getRoomPlayersKey(roomId));
@@ -237,7 +246,7 @@ public class RedisRoomRepository implements MatchRoomRepository{
                 PLAYER_LOCATIONS_HASH_KEY,
                 PLAYER_IPS_HASH_KEY
         );
-        Long result = stringRedisTemplate.execute(JOIN_ROOM_SCRIPT, keys, username, roomId, joinerIp, String.valueOf(joinerPort));
+        Long result = stringRedisTemplate.execute(joinRoomScriptBean, keys, username, roomId, joinerIp, String.valueOf(joinerPort));
         return result != null ? result : -1L;
     }
 
@@ -250,7 +259,7 @@ public class RedisRoomRepository implements MatchRoomRepository{
                 getRoomDetailsKey(roomId),
                 ROOMS_ACTIVE_SET_KEY
         );
-        Long result = stringRedisTemplate.execute(LEAVE_ROOM_SCRIPT, keys, username, roomId);
+        Long result = stringRedisTemplate.execute(leaveRoomScriptBean, keys, username, roomId);
         return result != null ? result : -1L;
     }
 }
