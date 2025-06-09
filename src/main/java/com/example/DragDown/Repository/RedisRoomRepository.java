@@ -259,8 +259,10 @@ public class RedisRoomRepository implements MatchRoomRepository{
     @Override
     public long tryJoinRoomAtomically(String roomId, String username, String joinerIp, int joinerPort){
         List<String> keys = Arrays.asList(
-                getRoomPlayersKey(roomId), getRoomDetailsKey(roomId),
-                PLAYER_LOCATIONS_HASH_KEY, PLAYER_IPS_HASH_KEY
+                getRoomPlayersKey(roomId),
+                getRoomDetailsKey(roomId),
+                PLAYER_LOCATIONS_HASH_KEY,
+                PLAYER_IPS_HASH_KEY
         );
         Long result = stringRedisTemplate.execute(JOIN_ROOM_SCRIPT, keys, username, roomId, joinerIp, String.valueOf(joinerPort));
         return result != null ? result : -1L;
@@ -271,6 +273,8 @@ public class RedisRoomRepository implements MatchRoomRepository{
         List<String> keys = Arrays.asList(
                 PLAYER_LOCATIONS_HASH_KEY,
                 PLAYER_IPS_HASH_KEY,
+                getRoomPlayersKey(roomId),
+                getRoomDetailsKey(roomId),
                 ROOMS_ACTIVE_SET_KEY
         );
         Long result = stringRedisTemplate.execute(LEAVE_ROOM_SCRIPT, keys, username, roomId);
