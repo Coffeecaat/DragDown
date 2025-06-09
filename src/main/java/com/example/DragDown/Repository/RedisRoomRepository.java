@@ -25,58 +25,31 @@ public class RedisRoomRepository implements MatchRoomRepository{
     private static final String ROOM_PLAYERS_SET_KEY_PREFIX = "room:";
     private static final String PLAYER_LOCATIONS_HASH_KEY = "player:locations";
     private static final String PLAYER_IPS_HASH_KEY = "player:ips";
+    private static final String USER_REFRESH_TOKEN_KEY_PREFIX = "user:refresh:";
 
     private static final int MAX_ID_GENERATION_ATTEMPTS = 10;
 
-    // --Lua Scripts (Service to Repository) --
-    private static final RedisScript<Long> JOIN_ROOM_SCRIPT = new DefaultRedisScript<>(
 
-            // ...(copy content from the previous response's JOIN_ROOM_SCRIPT) ...
-            "local maxPlayers = tonumber(redis.call('HGET', KEYS[2], 'maxPlayers')) \n" +
-                    "local currentState = redis.call('HGET', KEYS[2], 'state') \n" +
-                    "if not currentState then return 4 end \n" + // 4: no room
-                    "if currentState ~= 'waiting' then return 0 end \n" + // 0:game started
-                    "local currentPlayerCount = redis.call('SCARD', KEYS[1]) \n" +
-                    "if currentPlayerCount >= maxPlayers then return 1 end \n"+
-                    "if redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 1 then return 2 end \n" + // 2: already in
-                    "local added = redis.call('SADD', KEYS[1], ARGV[1]) \n" +
-                    "if added == 1 then \n" +
-                    " redis.call('HSET', KEYS[3], ARGV[1], ARGV[2]) \n" +
-                    " redis.call('HSET', KEYS[4], ARGV[1], ARGV[3] .. ':' .. ARGV[4]) \n" +
-                    " return 3 \n" + // 3: succeeded
-                    "else \n" +
-                    " return 5 \n" + // 5: player insertion failed
-                    "end",
-            Long.class
-    );
+    @Override
+    public void saveRefreshToken(String username, String refreshToken, long ttlMillis){
+        String key = USER_REFRESH_TOKEN_KEY_PREFIX + username;
+        stringRedisTemplate.opsForValue().set(key,refreshToken, ttlMillis, TimeUnit.MILLISECONDS);
+        log.debug("Saved refresh token for user: {} with TTL: {}ms", username, ttlMillis);
+    }
 
-    private static final RedisScript<Long> LEAVE_ROOM_SCRIPT = new DefaultRedisScript<>(
+    @Override
+    public Optional<String> findRefreshTokenByUsername(String username){
+        String key = USER_REFRESH_TOKEN_KEY_PREFIX + username;
+        String refreshToken = stringRedisTemplate.opsForValue().get(key);
+        return Optional.ofNullable(refreshToken);
+    }
 
-            "local username = ARGV[1] \n" +
-                    "local roomId = ARGV[2] \n" +
-                    "local roomPlayersKey = '" + ROOM_PLAYERS_SET_KEY_PREFIX + "' .. roomId .. ':players' \n" +
-                    "local roomDetailsKey = '" + ROOM_DETAILS_HASH_KEY_PREFIX + "' .. roomId .. ':details' \n" +
-
-                    "if redis.call('EXISTS', roomDetailsKey) == 0 then return 3 end \n" + // 3: no room
-                    "redis.call('HDEL', KEYS[1], username) \n" + // location delete
-                    "redis.call('HDEL', KEYS[2], username) \n" + // IP delete
-
-                    "local removed = redis.call('SREM', roomPlayersKey, username) \n" +
-                    "if removed == 0 then return 2 end \n" + // 2: not on the list
-
-                    "local hostUsername = redis.call('HGET', roomDetailsKey, 'hostUsername') \n" +
-                    "local remainingCount = redis.call('SCARD', roomPlayersKey) \n" +
-
-                    "if username == hostUsername or remainingCount == 0 then \n" +
-                        "redis.call('DEL', roomDetailsKey) \n" +
-                        "redis.call('DEL', roomPlayersKey) \n" +
-                        "redis.call('SREM', KEYS[3], roomId) \n" +
-                        "return 1 \n" + // 1: room closed
-                    "else \n" +
-                        "return 0 \n" + // 0: ordinary exit
-                    "end",
-            Long.class
-    );
+    @Override
+    public void deleteRefreshTokenByUsername(String username){
+        String key = USER_REFRESH_TOKEN_KEY_PREFIX + username;
+        Boolean deleted = stringRedisTemplate.delete(key);
+        log.debug("Deleted refresh token for user: {} with TTL: {}", username, deleted);
+    }
 
     // --Player Location & IP ---
     @Override
@@ -171,7 +144,7 @@ public class RedisRoomRepository implements MatchRoomRepository{
         log.error("Failed to generate a unique room ID after {} attempts.", MAX_ID_GENERATION_ATTEMPTS);
         throw new RuntimeException("Could not generate a unique room ID after " + MAX_ID_GENERATION_ATTEMPTS +
                 " attempts.");
-        }
+    }
 
         private String getRoomDetailsKey(String roomId){
         return ROOM_DETAILS_HASH_KEY_PREFIX + roomId + ":details";

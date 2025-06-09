@@ -12,6 +12,10 @@ public interface MatchRoomRepository {
     void removePlayerEndpoint(String username);
     Map<String, String> getPlayerEndpoints(List<String> usernames);
 
+    void saveRefreshToken(String username, String refreshToken, long ttlMillis);
+    void deleteRefreshTokenByUsername(String username);
+    Optional<String> findRefreshTokenByUsername(String username);
+
     String generateNewRoomId();
     void saveNewRoom(String roomId, String roomName, String hostUsername, String hostIp, int maxPlayers);
     void addRoomToActiveList(String roomId);
