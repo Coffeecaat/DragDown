@@ -72,23 +72,27 @@
 ```
 
 # 5. 실행 방법
-## 5.1. 패키징된 파일이 있는 경우
-- exe 파일 실행
+## 5.1. Github에서 Clone하기
+### 5.1.1. PostgreSQL 설치
+- [설치](https://www.postgresql.org/)
+
+### 5.1.2. Redis 설치
+- macOS: Homebrew 통해 설치
+- Windows: WSL 설치를 먼저 진행 후 이를 통해 설치
+
+### 5.1.3. Docker 설치
+- macOS: Homebrew 통해 설치
+- Windows: [설치](https://www.docker.com/products/docker-desktop/)
+
+### 5.1.4. IntelliJ 설치
+- [설치](https://www.jetbrains.com/ko-kr/idea/download/?section=windows)
 
 ## 5.2. Github에서 Clone하기
-### 5.2.1. Unreal Engine 5.5 설치
-- [설치](https://www.unrealengine.com/ko/download)
 
-### 5.2.2. Clone 후 uproject 나 Visual Studio에서 실행
-![start1](Images/start1.png)
-- .uproject 더블클릭
+### 5.2.2. Clone 후 IntelliJ에서 실행
+- application.properties에서 PostgreSQL와 Redis의 IntelliJ 연동 설정, jwt.secret 키와 토큰 유효 시간 등 설정 추가 필요
 
-혹은
-![start2-1](Images/start2-1.png)
-- Visual Studio를 켜고
-
-![start2-2](Images/start2-2.png)
-- 실행하기
+### 5.2.3. Docker를 통한 Redis 서버 활성화
 
 # 6. 관련 링크
 ## 시연 영상
