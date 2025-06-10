@@ -93,19 +93,12 @@
 ### 5.1.4. IntelliJ 설치
 - [설치](https://www.jetbrains.com/ko-kr/idea/download/?section=windows)
 
-
-
-## 5.2. Github에서 Clone하기
-
-
-
-### 5.2.2. Clone 후 IntelliJ에서 실행
+## 5.2. 서버 실행
+### 5.2.1. Clone 후 IntelliJ에서 실행
 - application.properties에서 PostgreSQL와 Redis의 IntelliJ 연동 설정
 - jwt.secret 키와 토큰 유효 시간 등 설정 추가 필요
 
-
-
-### 5.2.3. Docker를 통한 Redis 서버 활성화
+### 5.2.2. Docker를 통한 Redis 서버 활성화
 
 
 # 6. 관련 링크
