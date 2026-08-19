@@ -134,6 +134,10 @@ public class MatchRoomService {
             return;
         }
         String roomId = roomIdOpt.get();
+
+        // getting list of players in the current room to remove them before closing
+        Set<String> playersInRoomBeforeLeave = matchRoomRepository.getRoomPlayers(roomId);
+
         long result = matchRoomRepository.tryLeaveRoomAtomically(username, roomId);
 
         switch((int) result){
@@ -142,6 +146,18 @@ public class MatchRoomService {
                 break;
             case 1: // host exit or last member exit(room closed)
                 log.warn("User '{}' left room '{}', causing the room to close.", username, roomId);
+
+                List<String> remainingPlayersToClean = new ArrayList<>(playersInRoomBeforeLeave);
+                remainingPlayersToClean.remove(username);
+
+                if(!remainingPlayersToClean.isEmpty()){
+                    log.info("Cleaning up locations and endpoints for remaining players in closed room {}:{}", roomId, remainingPlayersToClean);
+                    matchRoomRepository.removePlayersLocation(remainingPlayersToClean);
+                    for(String player : remainingPlayersToClean){
+                        matchRoomRepository.removePlayerEndpoint(player);
+                    }
+                }
+                log.info("Room '{}' and its data (details, players, active_set) were deleted by Lua script.", roomId);
                 break;
             case 2: // failed (not in player list - Inconsistent)
                 String msg2 = String.format("Inconsistency detected: User '%s' was in room '%s' but not in player set.", username, roomId);
@@ -168,7 +184,9 @@ public class MatchRoomService {
 
         try{
             matchRoomRepository.removePlayerLocation(username);
+            log.info("Manual cleanup: Removed player location for user '{}'.",username);
             matchRoomRepository.removePlayerEndpoint(username);
+            log.info("Manual cleanup: Removed player endpoint for user '{}'.",username);
         }catch(Exception e){
             log.error("Error during manual cleanup for user '{}': {}", username, e.getMessage());
         }

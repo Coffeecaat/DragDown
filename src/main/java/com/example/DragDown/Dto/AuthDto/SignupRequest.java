@@ -1,14 +1,17 @@
 package com.example.DragDown.Dto.AuthDto;
 
-import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 @Data
 public class SignupRequest {
-    @NotEmpty
+
+    @NotBlank
     private String username;
-    @NotEmpty
+
+    @NotBlank
     private String email;
-    @NotEmpty
+
+    @NotBlank
     private String password;
 }

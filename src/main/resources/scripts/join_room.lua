@@ -12,7 +12,7 @@ if redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 1 then return 2 end -- 2: alread
 local added = redis.call('SADD', KEYS[1], ARGV[1])
 if added == 1 then
     redis.call('HSET', KEYS[3], ARGV[1], ARGV[2]) -- set location
-    redis.call('HSET', KEYS[4], ARGV1[1], ARGV[3] .. ':'.. ARGV[4]) -- set endpoint
+    redis.call('HSET', KEYS[4], ARGV[1], ARGV[3] .. ':' .. ARGV[4]) -- set endpoint
     return 3 -- 3:succeeded
 else
     return 5 -- 5: player insertion failed (SADD failed)

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Repository
@@ -33,9 +34,31 @@ public class RedisRoomRepository implements MatchRoomRepository{
     private static final String ROOM_PLAYERS_SET_KEY_PREFIX = "room:";
     private static final String PLAYER_LOCATIONS_HASH_KEY = "player:locations";
     private static final String PLAYER_IPS_HASH_KEY = "player:ips";
+    private static final String USER_REFRESH_TOKEN_KEY_PREFIX = "user:refresh:";
 
     private static final int MAX_ID_GENERATION_ATTEMPTS = 10;
 
+
+    @Override
+    public void saveRefreshToken(String username, String refreshToken, long ttlMillis){
+        String key = USER_REFRESH_TOKEN_KEY_PREFIX + username;
+        stringRedisTemplate.opsForValue().set(key,refreshToken, ttlMillis, TimeUnit.MILLISECONDS);
+        log.debug("Saved refresh token for user: {} with TTL: {}ms", username, ttlMillis);
+    }
+
+    @Override
+    public Optional<String> findRefreshTokenByUsername(String username){
+        String key = USER_REFRESH_TOKEN_KEY_PREFIX + username;
+        String refreshToken = stringRedisTemplate.opsForValue().get(key);
+        return Optional.ofNullable(refreshToken);
+    }
+
+    @Override
+    public void deleteRefreshTokenByUsername(String username){
+        String key = USER_REFRESH_TOKEN_KEY_PREFIX + username;
+        Boolean deleted = stringRedisTemplate.delete(key);
+        log.debug("Deleted refresh token for user: {} with TTL: {}", username, deleted);
+    }
 
     // --Player Location & IP ---
     @Override
@@ -218,8 +241,10 @@ public class RedisRoomRepository implements MatchRoomRepository{
     @Override
     public long tryJoinRoomAtomically(String roomId, String username, String joinerIp, int joinerPort){
         List<String> keys = Arrays.asList(
-                getRoomPlayersKey(roomId), getRoomDetailsKey(roomId),
-                PLAYER_LOCATIONS_HASH_KEY, PLAYER_IPS_HASH_KEY
+                getRoomPlayersKey(roomId),
+                getRoomDetailsKey(roomId),
+                PLAYER_LOCATIONS_HASH_KEY,
+                PLAYER_IPS_HASH_KEY
         );
         Long result = stringRedisTemplate.execute(joinRoomScriptBean, keys, username, roomId, joinerIp, String.valueOf(joinerPort));
         return result != null ? result : -1L;
@@ -230,6 +255,8 @@ public class RedisRoomRepository implements MatchRoomRepository{
         List<String> keys = Arrays.asList(
                 PLAYER_LOCATIONS_HASH_KEY,
                 PLAYER_IPS_HASH_KEY,
+                getRoomPlayersKey(roomId),
+                getRoomDetailsKey(roomId),
                 ROOMS_ACTIVE_SET_KEY
         );
         Long result = stringRedisTemplate.execute(leaveRoomScriptBean, keys, username, roomId);

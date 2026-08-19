@@ -19,12 +19,15 @@ public class Player {
     @NotNull
     private Long id;
 
+    @NotNull
     @Column(nullable = false, unique = true)
     private String username;
 
+    @NotNull
     @Column(nullable = false, unique = true)
     private String email;
 
+    @NotNull
     @Column(nullable = false)
     private String password;
 

@@ -7,7 +7,11 @@ local roomId = ARGV[2]
 local roomPlayersKey = KEYS[3] -- delivering result of getRoomPlayersKey(roomId) from MatchRoomRepository
 local roomDetailsKey = KEYS[4] -- delivering result of getRoomDetailsKey(roomId) from MatchRoomRepository
 
-if redis.call('EXISTS', roomDetailsKey) == 0 then return 3 end -- 3: no room
+if redis.call('EXISTS', roomDetailsKey) == 0 then -- 3: no room
+    redis.call('HDEL', KEYS[1], username) -- location delete
+    redis.call('HDEL', KEYS[2], username) -- IP delete (player:ips)
+    return 3
+end
 
 redis.call('HDEL', KEYS[1], username) -- location delete
 redis.call('HDEL', KEYS[2], username) -- IP delete (player:ips)
