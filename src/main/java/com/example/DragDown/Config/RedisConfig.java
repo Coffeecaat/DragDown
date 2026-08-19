@@ -14,7 +14,7 @@ public class RedisConfig {
         DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>();
 
 
-        redisScript.setLocation(new ClassPathResource("scripts/JoinRoom.lua"));
+        redisScript.setLocation(new ClassPathResource("scripts/join_room.lua"));
         redisScript.setResultType(Long.class);
         return redisScript;
     }
@@ -22,7 +22,7 @@ public class RedisConfig {
     @Bean
     public RedisScript<Long> leaveRoomScript(){
         DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>();
-        redisScript.setLocation(new ClassPathResource("scripts/LeaveRoom.lua"));
+        redisScript.setLocation(new ClassPathResource("scripts/leave_room.lua"));
         redisScript.setResultType(Long.class);
         return redisScript;
     }
