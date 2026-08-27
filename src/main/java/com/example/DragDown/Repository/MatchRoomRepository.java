@@ -30,6 +30,7 @@ public interface MatchRoomRepository {
     void setPlayerLocation(String username, String roomId);
 
     // Lua script execution method(result return code)
+    long tryCreateRoomAtomically(String roomId, String roomName, String username, String hostIp, int hostPort, int maxPlayers);
     long tryJoinRoomAtomically(String roomId, String username, String joinerIp, int joinerPort);
     long tryLeaveRoomAtomically(String username, String roomId);
 

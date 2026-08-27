@@ -17,13 +17,16 @@ import java.util.concurrent.TimeUnit;
 public class RedisRoomRepository implements MatchRoomRepository{
 
     private final StringRedisTemplate stringRedisTemplate;
+    private final RedisScript<Long> createRoomScriptBean;
     private final RedisScript<Long> joinRoomScriptBean;
     private final RedisScript<Long> leaveRoomScriptBean;
 
     public RedisRoomRepository(StringRedisTemplate stringRedisTemplate,
+                               @Qualifier("createRoomScript") RedisScript<Long> createRoomScript,
                                @Qualifier("joinRoomScript") RedisScript<Long> joinRoomScript,
                                @Qualifier("leaveRoomScript") RedisScript<Long> leaveRoomScript){
         this.stringRedisTemplate = stringRedisTemplate;
+        this.createRoomScriptBean = createRoomScript;
         this.joinRoomScriptBean = joinRoomScript;
         this.leaveRoomScriptBean = leaveRoomScript;
     }
@@ -35,9 +38,6 @@ public class RedisRoomRepository implements MatchRoomRepository{
     private static final String PLAYER_LOCATIONS_HASH_KEY = "player:locations";
     private static final String PLAYER_IPS_HASH_KEY = "player:ips";
     private static final String USER_REFRESH_TOKEN_KEY_PREFIX = "user:refresh:";
-
-    private static final int MAX_ID_GENERATION_ATTEMPTS = 10;
-
 
     @Override
     public void saveRefreshToken(String username, String refreshToken, long ttlMillis){
@@ -125,34 +125,7 @@ public class RedisRoomRepository implements MatchRoomRepository{
 
     @Override
     public String generateNewRoomId(){
-
-        int attempts =0;
-        while( attempts < MAX_ID_GENERATION_ATTEMPTS){
-
-            // 1. random ID generation
-            String candidateId = "room-" +UUID.randomUUID().toString().substring(0,6);
-            String detailsKey = getRoomDetailsKey(candidateId); //  ID's details key generated with candidate
-
-            // 2. check if candidate key exists in Redis (using hasKey)
-            // if key exists -> hasKey = true, if not -> false
-            Boolean exists = stringRedisTemplate.hasKey(detailsKey);
-
-            // 3. if key doesn't exist, unique ID found
-            if(Boolean.FALSE.equals(exists)){
-                log.info("Generated unique room ID '{}' after {} attempt(s).", candidateId, attempts +1);
-                return candidateId;
-            }
-
-            // 4. if Key already exists, one attempt increment and then retry
-            attempts++;
-            log.warn("Room ID collision detected for '{}'. Retrying generation (attempt {}/{}...",
-                    candidateId, attempts, MAX_ID_GENERATION_ATTEMPTS);
-        }
-
-        // 5. if exceeds maximum trial error occurs
-        log.error("Failed to generate a unique room ID after {} attempts.", MAX_ID_GENERATION_ATTEMPTS);
-        throw new RuntimeException("Could not generate a unique room ID after " + MAX_ID_GENERATION_ATTEMPTS +
-                " attempts.");
+        return "room-" + UUID.randomUUID().toString().substring(0,6);
     }
 
     private String getRoomDetailsKey(String roomId){
@@ -237,6 +210,35 @@ public class RedisRoomRepository implements MatchRoomRepository{
     }
 
     // Atomic Operation (Lua)
+
+    @Override
+    public long tryCreateRoomAtomically(String roomId, String roomName, String username, String hostIp, int hostPort, int maxPlayers) {
+        List<String> keys = Arrays.asList(
+                getRoomDetailsKey(roomId),
+                getRoomPlayersKey(roomId),
+                ROOMS_ACTIVE_SET_KEY,
+                PLAYER_LOCATIONS_HASH_KEY,
+                PLAYER_IPS_HASH_KEY
+        );
+
+        try {
+            Long result = stringRedisTemplate.execute(
+                    createRoomScriptBean,
+                    keys,
+                    username,
+                    roomId,
+                    roomName,
+                    hostIp,
+                    String.valueOf(hostPort),
+                    String.valueOf(maxPlayers),
+                    String.valueOf(Instant.now().toEpochMilli())
+            );
+            return result != null ? result : -1L;
+        } catch (RuntimeException exception) {
+            log.error("Create room Lua script failed for candidate '{}' and user '{}'.", roomId, username, exception);
+            return -1L;
+        }
+    }
 
     @Override
     public long tryJoinRoomAtomically(String roomId, String username, String joinerIp, int joinerPort){

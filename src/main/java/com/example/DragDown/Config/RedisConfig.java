@@ -10,6 +10,14 @@ import org.springframework.data.redis.core.script.RedisScript;
 public class RedisConfig {
 
     @Bean
+    public RedisScript<Long> createRoomScript(){
+        DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>();
+        redisScript.setLocation(new ClassPathResource("scripts/create_room.lua"));
+        redisScript.setResultType(Long.class);
+        return redisScript;
+    }
+
+    @Bean
     public RedisScript<Long> joinRoomScript(){
         DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>();
 

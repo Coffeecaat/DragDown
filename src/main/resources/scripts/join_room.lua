@@ -4,10 +4,16 @@ local currentState = redis.call('HGET', KEYS[2], 'state')
 if not currentState then return 4 end -- 4: no room
 if currentState ~= 'waiting' then return 0 end -- 0: game started
 
+local currentRoomId = redis.call('HGET', KEYS[3], ARGV[1])
+if currentRoomId then
+    if currentRoomId == ARGV[2] then return 2 end -- 2: already in this room
+    return 6 -- 6: already in another room
+end
+
 local currentPlayerCount = redis.call('SCARD', KEYS[1])
 if currentPlayerCount >= maxPlayers then return 1 end -- 1: full
 
-if redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 1 then return 2 end -- 2: already in
+if redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 1 then return 2 end -- 2: inconsistent duplicate membership
 
 local added = redis.call('SADD', KEYS[1], ARGV[1])
 if added == 1 then
