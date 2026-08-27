@@ -46,6 +46,7 @@ class RedisRoomLifecycleIntegrationTest {
 
         repository = new RedisRoomRepository(
                 redisTemplate,
+                redisScript("scripts/create_room.lua"),
                 redisScript("scripts/join_room.lua"),
                 redisScript("scripts/leave_room.lua")
         );

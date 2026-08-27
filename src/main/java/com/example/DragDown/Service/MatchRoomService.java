@@ -15,42 +15,52 @@ import java.util.*;
 @RequiredArgsConstructor
 public class MatchRoomService {
 
+    private static final int MAX_ROOM_ID_COLLISION_RETRIES = 10;
+
     // RoomRepository injection
     private final MatchRoomRepository matchRoomRepository;
 
     public RoomDetails createRoom(String username, String roomName, int maxPlayers, String hostIpAddress, int hostPort){
-
-        // 1. check if already in other room
-        matchRoomRepository.findRoomIdByPlayer(username).ifPresent(existingRoomId ->{
-            log.warn("User: '{}' tried to create room but is already in a room '{}'", username, existingRoomId);
-            throw new RoomException("이미 방 '" + existingRoomId + "'에 참가 중입니다.");
-        });
-
-        // 2.IP address validation check  (maintained in Service layer)
+        // IP address validation check (maintained in Service layer)
         if(hostIpAddress == null || hostIpAddress.trim().isEmpty() || hostPort <=0){
             throw new RoomException("유효하지 않은 IP 주소 또는 포트 번호입니다.");
         }
         int validatedMaxPlayers = Math.max(2, Math.min(maxPlayers,4)); // Max user limit
 
-        // 3. room creation and related info saved through Repository
-        String roomId = matchRoomRepository.generateNewRoomId();
-        log.debug("Saving player endpoint for {}", username);
-        matchRoomRepository.savePlayerEndpoint(username, hostIpAddress, hostPort);
-        log.debug("Saving new room details for {}", roomId);
-        matchRoomRepository.saveNewRoom(roomId, roomName, username, hostIpAddress, validatedMaxPlayers);
-        log.debug("Adding player to room set for {}", roomId);
-        matchRoomRepository.addPlayerToRoom(roomId, username);
-        log.debug("Adding room to active list for {}", roomId);
-        matchRoomRepository.addRoomToActiveList(roomId);
-        log.debug("Setting player location for {}", username);
-        matchRoomRepository.setPlayerLocation(username, roomId);
-        log.info("Room creation steps completed in service for {}", roomId);
+        for (int attempt = 1; attempt <= MAX_ROOM_ID_COLLISION_RETRIES; attempt++) {
+            String roomId = matchRoomRepository.generateNewRoomId();
+            long result = matchRoomRepository.tryCreateRoomAtomically(
+                    roomId,
+                    roomName,
+                    username,
+                    hostIpAddress,
+                    hostPort,
+                    validatedMaxPlayers
+            );
 
-        log.info("Room created via Repository: id={}, name={}, host={}, endpoint={}: {}", roomId, roomName, username,
-                hostIpAddress, hostPort);
+            switch ((int) result) {
+                case 0:
+                    log.info("Room created atomically: id={}, name={}, host={}, endpoint={}:{}",
+                            roomId, roomName, username, hostIpAddress, hostPort);
+                    return buildRoomDetailsFromRepository(roomId);
+                case 1:
+                    String existingRoomId = matchRoomRepository.findRoomIdByPlayer(username).orElse("unknown");
+                    throw new RoomException("이미 방 '" + existingRoomId + "'에 참가 중입니다.");
+                case 2:
+                    log.warn("Room ID collision detected for candidate '{}' (attempt {}/{}).",
+                            roomId, attempt, MAX_ROOM_ID_COLLISION_RETRIES);
+                    break;
+                case 3:
+                    throw new RoomException("방 생성에 필요한 Redis 상태가 올바르지 않습니다.");
+                case -1:
+                    return resolveAmbiguousCreateResult(
+                            roomId, roomName, username, hostIpAddress, hostPort, validatedMaxPlayers);
+                default:
+                    throw new RoomException("방 생성 중 알 수 없는 오류가 발생했습니다.");
+            }
+        }
 
-        // 4. return created room info(view data in Repository, and then create DTO)
-        return buildRoomDetailsFromRepository(roomId);
+        throw new RoomException("고유한 방 ID를 생성하지 못했습니다.");
 
     }
 
@@ -244,6 +254,58 @@ public class MatchRoomService {
             throw new RoomException("방 정보를 빌드하는 중 오류: 방 '" + roomId + "'없음");
         }
         return buildRoomDetailsFromRepository(roomId,details);
+    }
+
+    private RoomDetails resolveAmbiguousCreateResult(
+            String roomId,
+            String roomName,
+            String username,
+            String hostIpAddress,
+            int hostPort,
+            int maxPlayers
+    ) {
+        try {
+            Map<String, String> details = matchRoomRepository.getRoomDetailsMap(roomId);
+            Set<String> players = matchRoomRepository.getRoomPlayers(roomId);
+            boolean active = matchRoomRepository.getActiveRoomIds().contains(roomId);
+            Optional<String> location = matchRoomRepository.findRoomIdByPlayer(username);
+            String expectedEndpoint = hostIpAddress + ":" + hostPort;
+            String endpoint = matchRoomRepository.getPlayerEndpoints(List.of(username)).get(username);
+
+            boolean complete = roomName.equals(details.get("name"))
+                    && username.equals(details.get("hostUsername"))
+                    && hostIpAddress.equals(details.get("hostIp"))
+                    && Integer.toString(maxPlayers).equals(details.get("maxPlayers"))
+                    && "waiting".equals(details.get("state"))
+                    && details.containsKey("createdAt")
+                    && players.contains(username)
+                    && players.size() <= maxPlayers
+                    && active
+                    && location.filter(roomId::equals).isPresent()
+                    && expectedEndpoint.equals(endpoint);
+
+            if (complete) {
+                log.warn("Room creation response was unavailable, but candidate '{}' has complete matching state.", roomId);
+                return buildRoomDetailsFromRepository(roomId, details);
+            }
+
+            boolean absent = details.isEmpty()
+                    && players.isEmpty()
+                    && !active
+                    && location.isEmpty()
+                    && "Endpoint 정보 없음".equals(endpoint);
+            if (absent) {
+                throw new RoomException("방 생성 결과를 확인할 수 없습니다 (스크립트 실행 실패).");
+            }
+
+            log.error("Inconsistent state after ambiguous room creation result: room={}, user={}", roomId, username);
+            throw new RoomException("방 생성 결과가 일관되지 않습니다.");
+        } catch (RoomException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            log.error("Failed to inspect ambiguous room creation result: room={}, user={}", roomId, username, exception);
+            throw new RoomException("방 생성 결과 확인 중 오류가 발생했습니다.", exception);
+        }
     }
     
     private RoomDetails buildRoomDetailsFromRepository(String roomId, Map<String,String> details) {
