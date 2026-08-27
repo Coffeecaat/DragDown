@@ -111,6 +111,7 @@ public class MatchRoomService {
                 log.error("Repository failed to add player '{}' to room '{}'", username, roomId);
                 throw new RoomException("방 참여 중 오류 발생 (플레이어 추가 실패)");
             }
+            case 6 -> throw new RoomException("방 참여에 실패했습니다: 이미 다른 방에 참가 중입니다.");
             case -1 -> {
                 log.error("Lua script execution failed for joinRoom (user: {}, room: {})", username, roomId);
                 throw new RoomException("방 참여 중 오류가 발생했습니다 (스크립트 실패).");
