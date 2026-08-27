@@ -4,6 +4,7 @@ import com.example.DragDown.Exception.RoomException;
 import com.example.DragDown.Service.MatchRoomService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
@@ -20,7 +21,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@Testcontainers(disabledWithoutDocker = true)
+@Tag("redis-integration")
+@Testcontainers
 class RedisRoomLifecycleIntegrationTest {
 
     @Container

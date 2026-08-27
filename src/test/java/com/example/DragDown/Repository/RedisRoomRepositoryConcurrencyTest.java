@@ -2,6 +2,7 @@ package com.example.DragDown.Repository;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
@@ -23,7 +24,8 @@ import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Testcontainers(disabledWithoutDocker = true)
+@Tag("redis-integration")
+@Testcontainers
 class RedisRoomRepositoryConcurrencyTest {
 
     @Container
