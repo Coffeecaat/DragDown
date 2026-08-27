@@ -86,7 +86,10 @@ public class MatchRoomService {
 
     public RoomDetails joinRoom(String username, String joinerIpAddress, String roomId, int joinerPort){
 
-        matchRoomRepository.findRoomIdByPlayer(username).ifPresent(existingRoomId ->{
+        matchRoomRepository.findRoomIdByPlayer(username).ifPresent(existingRoomId -> {
+            if (existingRoomId.equals(roomId)) {
+                throw new RoomException("이미 해당 방에 참가 중입니다.");
+            }
             throw new RoomException("이미 다른 방 '" + existingRoomId + "'에 참가 중입니다.");
         });
 
