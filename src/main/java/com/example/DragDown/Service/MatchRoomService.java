@@ -114,7 +114,7 @@ public class MatchRoomService {
         return switch ((int) result) {
             case 3 -> {
                 log.info("User '{}' joined room '{}' (endpoint : {}:{})", username, roomId, joinerIpAddress, joinerPort);
-                yield buildRoomDetailsFromRepository(roomId);
+                yield buildJoinedRoomDetails(roomId);
             }
             case 0 -> throw new RoomException("방 참여에 실패했습니다: 게임이 시작되었습니다.");
             case 1 -> throw new RoomException("방 참여에 실패했습니다: 방이 꽉 찼습니다.");
@@ -149,9 +149,6 @@ public class MatchRoomService {
         }
         String roomId = roomIdOpt.get();
 
-        // getting list of players in the current room to remove them before closing
-        Set<String> playersInRoomBeforeLeave = matchRoomRepository.getRoomPlayers(roomId);
-
         long result = matchRoomRepository.tryLeaveRoomAtomically(username, roomId);
 
         switch((int) result){
@@ -160,49 +157,25 @@ public class MatchRoomService {
                 break;
             case 1: // host exit or last member exit(room closed)
                 log.warn("User '{}' left room '{}', causing the room to close.", username, roomId);
-
-                List<String> remainingPlayersToClean = new ArrayList<>(playersInRoomBeforeLeave);
-                remainingPlayersToClean.remove(username);
-
-                if(!remainingPlayersToClean.isEmpty()){
-                    log.info("Cleaning up locations and endpoints for remaining players in closed room {}:{}", roomId, remainingPlayersToClean);
-                    matchRoomRepository.removePlayersLocation(remainingPlayersToClean);
-                    for(String player : remainingPlayersToClean){
-                        matchRoomRepository.removePlayerEndpoint(player);
-                    }
-                }
-                log.info("Room '{}' and its data (details, players, active_set) were deleted by Lua script.", roomId);
+                log.info("Room '{}' and all related player state were deleted by Lua script.", roomId);
                 break;
-            case 2: // failed (not in player list - Inconsistent)
-                String msg2 = String.format("Inconsistency detected: User '%s' was in room '%s' but not in player set.", username, roomId);
-                log.error(msg2);
-                throw new RoomException(msg2);
-            case 3: // failed(no room - Inconsistent
-                String msg3 = String.format("Inconsistency detected: User '%s' location points to non-existent room '%s'.", username, roomId);
-                log.error(msg3);
-                throw new RoomException(msg3);
+            case 2:
+                log.warn("Leave request for user '{}' found no membership in room '{}'; stale player state was cleaned.", username, roomId);
+                break;
+            case 3:
+                log.warn("Leave request for user '{}' found room '{}' already closed; stale player state was cleaned.", username, roomId);
+                break;
+            case 4:
+                log.info("Ignored stale leave request for user '{}' and previous room '{}'.", username, roomId);
+                break;
             case -1: // script execution failed
                 String msgNeg1 = String.format("Lua script execution failed for leaveRoom(user: %s, room: %s)", username, roomId);
                 log.error(msgNeg1);
-                manualCleanupAfterLeaveFailure(username, roomId);
                 throw new RoomException("방 나가기 처리 중 오류가 발생했습니다 (스크립트 실패).");
             default:
                 String msgDefault = String.format("Unknown result code %d from repository for leaveRoom (user: %s, room: %s)", result, username, roomId);
                 log.error(msgDefault);
                 throw new RoomException("방 나가기 처리 중 알 수 없는 오류가 발생했습니다.");
-        }
-    }
-
-    private void manualCleanupAfterLeaveFailure(String username, String roomId){
-        log.warn("Attempting manual cleanup for user '{}' after leave script failure in room '{}'", username, roomId);
-
-        try{
-            matchRoomRepository.removePlayerLocation(username);
-            log.info("Manual cleanup: Removed player location for user '{}'.",username);
-            matchRoomRepository.removePlayerEndpoint(username);
-            log.info("Manual cleanup: Removed player endpoint for user '{}'.",username);
-        }catch(Exception e){
-            log.error("Error during manual cleanup for user '{}': {}", username, e.getMessage());
         }
     }
 
@@ -254,6 +227,15 @@ public class MatchRoomService {
             throw new RoomException("방 정보를 빌드하는 중 오류: 방 '" + roomId + "'없음");
         }
         return buildRoomDetailsFromRepository(roomId,details);
+    }
+
+    private RoomDetails buildJoinedRoomDetails(String roomId) {
+        try {
+            return buildRoomDetailsFromRepository(roomId);
+        } catch (RoomException exception) {
+            log.info("Room '{}' closed after the join script completed.", roomId);
+            throw new RoomException("입장 처리 중 방이 종료되었습니다.", exception);
+        }
     }
 
     private RoomDetails resolveAmbiguousCreateResult(

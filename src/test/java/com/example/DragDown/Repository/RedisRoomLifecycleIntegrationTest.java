@@ -156,6 +156,47 @@ class RedisRoomLifecycleIntegrationTest {
         assertThat(endpointOf("second-guest")).isEqualTo("Endpoint 정보 없음");
     }
 
+    @Test
+    void staleLeaveRequestDoesNotDeleteStateAfterPlayerJoinsAnotherRoom() {
+        String oldRoomId = "room-old-still-exists";
+        String newRoomId = "room-new-after-leave";
+        String username = "moving-player";
+        createRoomWithHost(oldRoomId, "old-host", 4);
+        service.joinRoom(username, "127.0.0.1", oldRoomId, 2101);
+
+        String staleRoomId = repository.findRoomIdByPlayer(username).orElseThrow();
+        service.leaveRoom(username);
+
+        createRoomWithHost(newRoomId, "new-host", 4);
+        service.joinRoom(username, "127.0.0.2", newRoomId, 2201);
+
+        long result = repository.tryLeaveRoomAtomically(username, staleRoomId);
+
+        assertThat(result).isEqualTo(4L);
+        assertPlayerStillInNewRoom(username, newRoomId, "127.0.0.2:2201");
+        assertThat(repository.getRoomDetailsMap(oldRoomId)).isNotEmpty();
+    }
+
+    @Test
+    void staleLeaveRequestForDeletedRoomDoesNotDeleteNewRoomState() {
+        String oldRoomId = "room-old-deleted";
+        String newRoomId = "room-new-after-close";
+        String username = "former-host";
+        createRoomWithHost(oldRoomId, username, 4);
+
+        String staleRoomId = repository.findRoomIdByPlayer(username).orElseThrow();
+        service.leaveRoom(username);
+        assertThat(repository.getRoomDetailsMap(oldRoomId)).isEmpty();
+
+        createRoomWithHost(newRoomId, "new-host", 4);
+        service.joinRoom(username, "127.0.0.3", newRoomId, 2301);
+
+        long result = repository.tryLeaveRoomAtomically(username, staleRoomId);
+
+        assertThat(result).isEqualTo(4L);
+        assertPlayerStillInNewRoom(username, newRoomId, "127.0.0.3:2301");
+    }
+
     private void createRoomWithHost(String roomId, String hostUsername, int maxPlayers) {
         repository.saveNewRoom(roomId, roomId, hostUsername, "127.0.0.1", maxPlayers);
         repository.addPlayerToRoom(roomId, hostUsername);
@@ -168,6 +209,14 @@ class RedisRoomLifecycleIntegrationTest {
         assertThat(repository.getRoomPlayers(roomId)).doesNotContain(username);
         assertThat(repository.findRoomIdByPlayer(username)).isEmpty();
         assertThat(endpointOf(username)).isEqualTo("Endpoint 정보 없음");
+    }
+
+    private void assertPlayerStillInNewRoom(String username, String roomId, String endpoint) {
+        assertThat(repository.findRoomIdByPlayer(username)).contains(roomId);
+        assertThat(endpointOf(username)).isEqualTo(endpoint);
+        assertThat(repository.getRoomPlayers(roomId)).contains(username);
+        assertThat(repository.getRoomDetailsMap(roomId)).isNotEmpty();
+        assertThat(repository.getActiveRoomIds()).contains(roomId);
     }
 
     private String endpointOf(String username) {
